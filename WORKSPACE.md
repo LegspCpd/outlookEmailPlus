@@ -285,6 +285,37 @@
 
 ---
 
+#### 274J. CI/CD 状态检查 + 提交推送
+
+**时间**：2026-05-19
+
+**操作背景**：
+用户要求检查 CI/CD 状态，并将修复提交推送。
+
+**CI/CD 检查结果**：
+
+| 工作流 | 状态 | 说明 |
+|--------|------|------|
+| SonarCloud Scan | ✅ 通过（4m8s） | Run #26096327962，触发于 commit `838da17` |
+| Python Tests | ⏭️ 跳过 | paths filter 排除 .md 文件（无 .py 变更） |
+| Code Quality | ⏭️ 跳过 | paths filter 排除 .md 文件（无 .py 变更） |
+| Build and Push Docker | ⏭️ 跳过 | paths filter 排除 .md 文件（无 .py/Dockerfile 变更） |
+| Create GitHub Release | ⏭️ 未触发 | 仅 tag push 触发，本次为 branch push |
+
+**结论**：CI/CD 完全正常。路径过滤器正确防止了文档专用提交触发不必要的测试/构建/发布流程。仅 SonarCloud Scan 因无 paths filter 而触发。
+
+**告警（非阻塞）**：
+- Node.js 20 actions deprecated（2026年6月起强制 Node.js 24）
+- SonarQube Scanner GitHub Action 已弃用（建议升级到 sonarsource/sonarqube-scan-action@v6）
+
+**提交推送**：
+- Commit `838da17`：CHANGELOG.md + WORKSPACE.md
+- Push：`origin/main` 40146e3..838da17
+
+**是否改动代码**：否（仅文档提交 + CI/CD 状态观察）
+
+---
+
 #### 273. 图片分析请求 — 模型能力限制诊断与文档同步（无代码改动）
 
 **操作背景**：
