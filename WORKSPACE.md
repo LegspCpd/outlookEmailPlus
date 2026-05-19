@@ -154,6 +154,24 @@
 
 ---
 
+#### 274F. 本地提交 i18n 修复
+
+**时间**：2026-05-19
+
+**操作**：
+- `git add` i18n.js、pool_admin.js、DEVLOG.md、WORKSPACE.md
+- `git commit` 提交 hash: `f0237e7`
+- commit message: `fix(i18n): 号池管理页面英文翻译补全 — 整句翻译支持中英语序差异`
+
+**未提交的遗留文件**：
+- `static/css/main.css` — 之前的 UI 调整
+- `templates/index.html` — 筛选栏布局调整
+- `test_pool_admin_ui.py`、`tests/test_pool_admin_ui_v2.py` — Playwright 测试（未跟踪）
+
+**状态**：提交完成，等待用户确认是否需要提交剩余文件或 push
+
+---
+
 #### 273. 图片分析请求 — 模型能力限制诊断与文档同步（无代码改动）
 
 **操作背景**：
