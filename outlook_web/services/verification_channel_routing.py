@@ -103,6 +103,30 @@ def _candidate_folders_for_channel(channel: str) -> List[str]:
     return []
 
 
+def _channel_group(channel: str) -> str:
+    normalized = normalize_verification_channel(channel)
+    if normalized in (CHANNEL_GRAPH_INBOX, CHANNEL_GRAPH_JUNK):
+        return "graph"
+    if normalized in (CHANNEL_IMAP_NEW, CHANNEL_IMAP_OLD):
+        return "imap"
+    return ""
+
+
+def _verification_channel_phases(channel_plan: List[str]) -> List[List[str]]:
+    groups: List[str] = []
+    for channel in channel_plan:
+        group = _channel_group(channel)
+        if group and group not in groups:
+            groups.append(group)
+
+    phases: List[List[str]] = []
+    for group in groups:
+        phase = [channel for channel in channel_plan if _channel_group(channel) == group]
+        if phase:
+            phases.append(phase)
+    return phases
+
+
 def normalize_verification_channel(value: Any) -> Optional[str]:
     text = str(value or "").strip().lower()
     if text in VALID_VERIFICATION_CHANNELS:
@@ -450,67 +474,95 @@ def extract_verification_for_outlook(
     new_refresh_token = str((precheck_obj or {}).get("new_refresh_token") or "")
     verification_attempted = False
     last_log_channel = "unknown"
-    candidate_emails: List[Dict[str, Any]] = []
+    emails: List[Dict[str, Any]] = []
+    detail_cache: Dict[tuple, Dict[str, Any]] = {}
 
-    for channel in channel_plan:
-        last_log_channel = channel or last_log_channel
-        channel_available = False
-        channel_folders = _candidate_folders_for_channel(channel) or ["inbox"]
-        for folder in channel_folders:
-            channel_result = fetch_emails_for_channel(
-                account=account,
-                channel=channel,
-                proxy_url=proxy_url,
-                folder=folder,
-                top=VERIFICATION_FETCH_TOP,
+    for channel_phase in _verification_channel_phases(channel_plan):
+        candidate_emails: List[Dict[str, Any]] = []
+        for channel in channel_phase:
+            last_log_channel = channel or last_log_channel
+            channel_available = False
+            channel_folders = _candidate_folders_for_channel(channel) or ["inbox"]
+            for folder in channel_folders:
+                if _channel_group(channel) == "imap":
+                    channel_result = fetch_emails_and_detail_for_channel(
+                        account=account,
+                        channel=channel,
+                        proxy_url=proxy_url,
+                        folder=folder,
+                        top=VERIFICATION_FETCH_TOP,
+                    )
+                else:
+                    channel_result = fetch_emails_for_channel(
+                        account=account,
+                        channel=channel,
+                        proxy_url=proxy_url,
+                        folder=folder,
+                        top=VERIFICATION_FETCH_TOP,
+                    )
+
+                if not channel_result.get("success"):
+                    error_key = channel if len(channel_folders) == 1 else f"{channel}:{folder}"
+                    upstream_errors[error_key] = channel_result.get("error")
+                    if channel.startswith("graph_") and channel_result.get("auth_expired"):
+                        graph_auth_expired = True
+                    continue
+
+                channel_available = True
+                any_channel_read_success = True
+
+                if channel_result.get("new_refresh_token"):
+                    new_refresh_token = str(channel_result.get("new_refresh_token") or "")
+                    account["refresh_token"] = new_refresh_token
+
+                channel_emails = channel_result.get("emails", []) or []
+                candidate_emails.extend(channel_emails)
+
+                detail = channel_result.get("detail")
+                if detail:
+                    detail_id = str(detail.get("id") or "")
+                    if not detail_id and channel_emails:
+                        detail_id = str((channel_emails[0] or {}).get("id") or "")
+                    if detail_id:
+                        folder_key = str(folder or "inbox").strip().lower() or "inbox"
+                        detail_cache[(channel, folder_key, detail_id)] = detail
+
+            if normalize_verification_channel(channel):
+                channel_capability_cache.set_status(account_email, channel, available=channel_available)
+
+        phase_emails = candidate_emails
+        if from_contains or subject_contains or since_minutes or baseline_timestamp:
+            from outlook_web.services.external_api import filter_messages
+
+            phase_emails = filter_messages(
+                phase_emails,
+                from_contains=from_contains,
+                subject_contains=subject_contains,
+                since_minutes=since_minutes,
+                baseline_timestamp=baseline_timestamp,
             )
 
-            if not channel_result.get("success"):
-                error_key = channel if len(channel_folders) == 1 else f"{channel}:{folder}"
-                upstream_errors[error_key] = channel_result.get("error")
-                if channel.startswith("graph_") and channel_result.get("auth_expired"):
-                    graph_auth_expired = True
-                continue
-
-            channel_available = True
-            any_channel_read_success = True
-
-            if channel_result.get("new_refresh_token"):
-                new_refresh_token = str(channel_result.get("new_refresh_token") or "")
-                account["refresh_token"] = new_refresh_token
-
-            candidate_emails.extend(channel_result.get("emails", []) or [])
-
-        if normalize_verification_channel(channel):
-            channel_capability_cache.set_status(account_email, channel, available=channel_available)
-
-    emails = candidate_emails
-    if from_contains or subject_contains or since_minutes or baseline_timestamp:
-        from outlook_web.services.external_api import filter_messages
-
-        emails = filter_messages(
-            emails,
-            from_contains=from_contains,
-            subject_contains=subject_contains,
-            since_minutes=since_minutes,
-            baseline_timestamp=baseline_timestamp,
-        )
+        if phase_emails:
+            emails = phase_emails
+            break
 
     if emails:
         latest = sorted(emails, key=_message_sort_key, reverse=True)[0]
         channel = str(latest.get("_verification_channel") or "")
-        folder = str(latest.get("folder") or "inbox")
+        folder = str(latest.get("folder") or "inbox").strip().lower() or "inbox"
         latest_id = str(latest.get("id") or "")
         last_log_channel = channel or last_log_channel
         verification_attempted = True
 
-        detail = fetch_email_detail_for_channel(
-            account=account,
-            channel=channel,
-            message_id=latest_id,
-            proxy_url=proxy_url,
-            folder=folder,
-        )
+        detail = detail_cache.get((channel, folder, latest_id))
+        if detail is None:
+            detail = fetch_email_detail_for_channel(
+                account=account,
+                channel=channel,
+                message_id=latest_id,
+                proxy_url=proxy_url,
+                folder=folder,
+            )
 
         if detail:
             email_obj = _build_email_obj_from_channel_detail(detail=detail, latest=latest)
