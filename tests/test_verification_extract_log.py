@@ -289,14 +289,22 @@ class VerificationChannelRoutingLogChannelTests(unittest.TestCase):
 
             fake_channel_result = {
                 "success": True,
-                "emails": [{"id": "e1", "date": "2026-04-19T10:00:00Z"}],
+                "emails": [
+                    {
+                        "id": "e1",
+                        "date": "2026-04-19T10:00:00Z",
+                        "timestamp": 1776592800,
+                        "folder": "inbox",
+                        "_verification_channel": "graph_inbox",
+                    }
+                ],
             }
 
             with (
-                patch.object(vcr, "build_verification_channel_plan", return_value=["graph_delta"]),
+                patch.object(vcr, "build_verification_channel_plan", return_value=["graph_inbox"]),
                 patch.object(
                     vcr,
-                    "fetch_emails_and_detail_for_channel",
+                    "fetch_emails_for_channel",
                     return_value=fake_channel_result,
                 ),
                 patch.object(vcr, "fetch_email_detail_for_channel", return_value={"body": "888888"}),
@@ -328,8 +336,8 @@ class VerificationChannelRoutingLogChannelTests(unittest.TestCase):
             self.assertIn("_log_channel", result)
             self.assertEqual(result["_log_channel"], "ai_fallback")
 
-    def test_imap_detail_mismatch_refetches_latest_message_detail(self):
-        """IMAP 连接复用返回的 detail 与最新邮件不一致时，应按 latest.id 重新取详情。"""
+    def test_imap_latest_message_detail_is_fetched_by_latest_id(self):
+        """IMAP 候选列表存在多封邮件时，应按 latest.id 拉取详情。"""
         with self.app.app_context():
             from outlook_web.services import verification_channel_routing as vcr
 
@@ -352,22 +360,20 @@ class VerificationChannelRoutingLogChannelTests(unittest.TestCase):
                         "subject": "Old code",
                         "from": "OpenAI",
                         "date": "Tue, 19 May 2026 10:01:15 +0000",
+                        "folder": "inbox",
+                        "_verification_channel": "imap_new",
                     },
                     {
                         "id": "5",
                         "subject": "New code",
                         "from": "OpenAI",
                         "date": "Tue, 19 May 2026 10:38:27 +0000",
+                        "folder": "inbox",
+                        "_verification_channel": "imap_new",
                     },
                 ],
-                "detail": {
-                    "id": "3",
-                    "subject": "Old code",
-                    "from": "OpenAI",
-                    "date": "Tue, 19 May 2026 10:01:15 +0000",
-                    "body": "Your code is 990595",
-                },
             }
+            empty_channel_result = {"success": True, "emails": []}
             latest_detail = {
                 "id": "5",
                 "subject": "New code",
@@ -378,7 +384,11 @@ class VerificationChannelRoutingLogChannelTests(unittest.TestCase):
 
             with (
                 patch.object(vcr, "build_verification_channel_plan", return_value=["imap_new"]),
-                patch.object(vcr, "fetch_emails_and_detail_for_channel", return_value=fake_channel_result),
+                patch.object(
+                    vcr,
+                    "fetch_emails_for_channel",
+                    side_effect=[fake_channel_result, empty_channel_result],
+                ),
                 patch.object(vcr, "fetch_email_detail_for_channel", return_value=latest_detail) as mock_fetch_detail,
                 patch(
                     "outlook_web.services.graph.get_access_token_graph_result",
@@ -398,3 +408,225 @@ class VerificationChannelRoutingLogChannelTests(unittest.TestCase):
             self.assertEqual(result.get("data", {}).get("verification_code"), "701280")
             mock_fetch_detail.assert_called_once()
             self.assertEqual(mock_fetch_detail.call_args.kwargs.get("message_id"), "5")
+            self.assertEqual(mock_fetch_detail.call_args.kwargs.get("folder"), "inbox")
+
+    def test_graph_junk_newer_than_inbox_wins_global_latest(self):
+        """ZER-89: Junk 邮件比 Inbox 更新时，应返回 Junk 最新验证码。"""
+        with self.app.app_context():
+            from outlook_web.services import verification_channel_routing as vcr
+
+            fake_account = {
+                "id": 4,
+                "email": "junk-newer@outlook.com",
+                "account_type": "outlook",
+                "provider": "outlook",
+                "group_id": None,
+                "preferred_verification_channel": None,
+                "client_id": "cid",
+                "refresh_token": "rt",
+            }
+
+            inbox_result = {
+                "success": True,
+                "emails": [
+                    {
+                        "id": "inbox-old",
+                        "subject": "Old inbox code",
+                        "from": "OpenAI",
+                        "receivedDateTime": "2026-07-14T09:30:00Z",
+                        "timestamp": 1784021400,
+                        "folder": "inbox",
+                        "_verification_channel": "graph_inbox",
+                    }
+                ],
+            }
+            junk_result = {
+                "success": True,
+                "emails": [
+                    {
+                        "id": "junk-new",
+                        "subject": "New junk code",
+                        "from": "OpenAI",
+                        "receivedDateTime": "2026-07-14T09:45:00Z",
+                        "timestamp": 1784022300,
+                        "folder": "junkemail",
+                        "_verification_channel": "graph_junk",
+                    }
+                ],
+            }
+            junk_detail = {
+                "id": "junk-new",
+                "subject": "New junk code",
+                "receivedDateTime": "2026-07-14T09:45:00Z",
+                "from": {"emailAddress": {"address": "noreply@openai.com"}},
+                "body": {"contentType": "text", "content": "Your verification code is 222222"},
+            }
+
+            def fake_fetch(*, channel, **_kwargs):
+                return inbox_result if channel == "graph_inbox" else junk_result
+
+            with (
+                patch.object(vcr, "build_verification_channel_plan", return_value=["graph_inbox", "graph_junk"]),
+                patch.object(vcr, "fetch_emails_for_channel", side_effect=fake_fetch),
+                patch.object(vcr, "fetch_email_detail_for_channel", return_value=junk_detail) as mock_fetch_detail,
+                patch(
+                    "outlook_web.services.graph.get_access_token_graph_result",
+                    return_value={"success": True, "scope": "Mail.Read"},
+                ),
+                patch("outlook_web.repositories.accounts.update_preferred_verification_channel"),
+            ):
+                result = vcr.extract_verification_for_outlook(
+                    account=fake_account,
+                    resolved_policy={"code_regex": r"(?<!\d)\d{6}(?!\d)", "code_length": "6-6"},
+                    code_source="all",
+                    expected_field="verification_code",
+                )
+
+            self.assertTrue(result.get("success"))
+            self.assertEqual(result.get("channel_used"), "graph_junk")
+            self.assertEqual(result.get("data", {}).get("folder"), "junkemail")
+            self.assertEqual(result.get("data", {}).get("matched_email_id"), "junk-new")
+            self.assertEqual(result.get("data", {}).get("verification_code"), "222222")
+            mock_fetch_detail.assert_called_once()
+            self.assertEqual(mock_fetch_detail.call_args.kwargs.get("channel"), "graph_junk")
+            self.assertEqual(mock_fetch_detail.call_args.kwargs.get("folder"), "junkemail")
+
+    def test_newest_junk_without_code_does_not_fallback_to_old_inbox_code(self):
+        """ZER-89: 最新匹配邮件无验证码时，不应退回较早 Inbox 旧验证码。"""
+        with self.app.app_context():
+            from outlook_web.services import verification_channel_routing as vcr
+
+            fake_account = {
+                "id": 5,
+                "email": "junk-no-code@outlook.com",
+                "account_type": "outlook",
+                "provider": "outlook",
+                "group_id": None,
+                "preferred_verification_channel": None,
+                "client_id": "cid",
+                "refresh_token": "rt",
+            }
+
+            inbox_result = {
+                "success": True,
+                "emails": [
+                    {
+                        "id": "inbox-old",
+                        "subject": "Old inbox code",
+                        "from": "OpenAI",
+                        "receivedDateTime": "2026-07-14T09:30:00Z",
+                        "timestamp": 1784021400,
+                        "folder": "inbox",
+                        "_verification_channel": "graph_inbox",
+                    }
+                ],
+            }
+            junk_result = {
+                "success": True,
+                "emails": [
+                    {
+                        "id": "junk-new",
+                        "subject": "New junk notification",
+                        "from": "OpenAI",
+                        "receivedDateTime": "2026-07-14T09:45:00Z",
+                        "timestamp": 1784022300,
+                        "folder": "junkemail",
+                        "_verification_channel": "graph_junk",
+                    }
+                ],
+            }
+            junk_detail = {
+                "id": "junk-new",
+                "subject": "New junk notification",
+                "receivedDateTime": "2026-07-14T09:45:00Z",
+                "from": {"emailAddress": {"address": "noreply@openai.com"}},
+                "body": {"contentType": "text", "content": "This message does not contain a verification code."},
+            }
+
+            def fake_fetch(*, channel, **_kwargs):
+                return inbox_result if channel == "graph_inbox" else junk_result
+
+            with (
+                patch.object(vcr, "build_verification_channel_plan", return_value=["graph_inbox", "graph_junk"]),
+                patch.object(vcr, "fetch_emails_for_channel", side_effect=fake_fetch),
+                patch.object(vcr, "fetch_email_detail_for_channel", return_value=junk_detail) as mock_fetch_detail,
+                patch(
+                    "outlook_web.services.graph.get_access_token_graph_result",
+                    return_value={"success": True, "scope": "Mail.Read"},
+                ),
+            ):
+                result = vcr.extract_verification_for_outlook(
+                    account=fake_account,
+                    resolved_policy={"code_regex": r"(?<!\d)\d{6}(?!\d)", "code_length": "6-6"},
+                    code_source="all",
+                    expected_field="verification_code",
+                )
+
+            self.assertFalse(result.get("success"))
+            self.assertEqual(result.get("error_code"), "VERIFICATION_NOT_FOUND")
+            self.assertEqual(result.get("_log_channel"), "graph_junk")
+            mock_fetch_detail.assert_called_once()
+            self.assertEqual(mock_fetch_detail.call_args.kwargs.get("message_id"), "junk-new")
+
+    def test_imap_junk_folder_is_considered_for_verification_candidates(self):
+        """ZER-89: IMAP fallback 也应把 junkemail 纳入候选。"""
+        with self.app.app_context():
+            from outlook_web.services import verification_channel_routing as vcr
+
+            fake_account = {
+                "id": 6,
+                "email": "imap-junk@outlook.com",
+                "account_type": "outlook",
+                "provider": "outlook",
+                "group_id": None,
+                "preferred_verification_channel": "imap_new",
+                "client_id": "cid",
+                "refresh_token": "rt",
+            }
+
+            inbox_result = {"success": True, "emails": []}
+            junk_result = {
+                "success": True,
+                "emails": [
+                    {
+                        "id": "imap-junk-new",
+                        "subject": "Junk IMAP code",
+                        "from": "OpenAI",
+                        "date": "Tue, 14 Jul 2026 09:45:00 +0000",
+                        "folder": "junkemail",
+                        "_verification_channel": "imap_new",
+                    }
+                ],
+            }
+            junk_detail = {
+                "id": "imap-junk-new",
+                "subject": "Junk IMAP code",
+                "from": "OpenAI",
+                "date": "Tue, 14 Jul 2026 09:45:00 +0000",
+                "body": "Your verification code is 333333",
+            }
+
+            with (
+                patch.object(vcr, "build_verification_channel_plan", return_value=["imap_new"]),
+                patch.object(vcr, "fetch_emails_for_channel", side_effect=[inbox_result, junk_result]) as mock_fetch_list,
+                patch.object(vcr, "fetch_email_detail_for_channel", return_value=junk_detail) as mock_fetch_detail,
+                patch(
+                    "outlook_web.services.graph.get_access_token_graph_result",
+                    return_value={"success": False},
+                ),
+                patch("outlook_web.repositories.accounts.update_preferred_verification_channel"),
+            ):
+                result = vcr.extract_verification_for_outlook(
+                    account=fake_account,
+                    resolved_policy={"code_regex": r"(?<!\d)\d{6}(?!\d)", "code_length": "6-6"},
+                    code_source="all",
+                    expected_field="verification_code",
+                )
+
+            self.assertTrue(result.get("success"))
+            self.assertEqual(result.get("channel_used"), "imap_new")
+            self.assertEqual(result.get("data", {}).get("folder"), "junkemail")
+            self.assertEqual(result.get("data", {}).get("verification_code"), "333333")
+            self.assertEqual([call.kwargs.get("folder") for call in mock_fetch_list.call_args_list], ["inbox", "junkemail"])
+            mock_fetch_detail.assert_called_once()
+            self.assertEqual(mock_fetch_detail.call_args.kwargs.get("folder"), "junkemail")

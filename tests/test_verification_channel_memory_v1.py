@@ -198,7 +198,7 @@ class VerificationChannelMemoryV1Tests(unittest.TestCase):
     @patch("outlook_web.services.graph.get_email_detail_graph")
     @patch("outlook_web.services.graph.get_emails_graph")
     @patch("outlook_web.services.imap.get_emails_imap_with_server")
-    def test_external_empty_or_invalid_preferred_keeps_legacy_behavior(
+    def test_external_empty_or_invalid_preferred_checks_graph_folders(
         self,
         mock_imap_list,
         mock_graph_list,
@@ -215,11 +215,28 @@ class VerificationChannelMemoryV1Tests(unittest.TestCase):
                 mock_graph_detail.reset_mock()
                 mock_imap_list.reset_mock()
 
-                mock_graph_list.return_value = {
-                    "success": True,
-                    "emails": [self._graph_email(message_id=f"msg-{preferred or 'none'}")],
-                }
+                mock_graph_list.side_effect = [
+                    {
+                        "success": True,
+                        "emails": [
+                            self._graph_email(
+                                message_id=f"msg-inbox-{preferred or 'none'}",
+                                received_at=self._utc_iso(minutes_delta=-1),
+                            )
+                        ],
+                    },
+                    {
+                        "success": True,
+                        "emails": [
+                            self._graph_email(
+                                message_id=f"msg-junk-{preferred or 'none'}",
+                                received_at=self._utc_iso(),
+                            )
+                        ],
+                    },
+                ]
                 mock_graph_detail.return_value = self._graph_detail(body_text="Your code is 321654")
+                mock_imap_list.return_value = {"success": False, "error": {"message": "imap unavailable"}}
 
                 resp = client.get(
                     f"/api/external/verification-code?email={email_addr}",
@@ -231,10 +248,11 @@ class VerificationChannelMemoryV1Tests(unittest.TestCase):
                 self.assertEqual(data.get("verification_code"), "321654")
                 self.assertNotIn("_matched_channel", data)
 
-                self.assertTrue(mock_graph_list.called)
-                self.assertEqual(mock_graph_list.call_args.kwargs.get("folder"), "inbox")
-                mock_imap_list.assert_not_called()
-                self.assertEqual(self._get_preferred_channel(email_addr), "graph_inbox")
+                self.assertEqual(
+                    [call.kwargs.get("folder") for call in mock_graph_list.call_args_list],
+                    ["inbox", "junkemail"],
+                )
+                self.assertEqual(self._get_preferred_channel(email_addr), "graph_junk")
 
     @patch("outlook_web.services.graph.get_email_detail_graph")
     @patch("outlook_web.services.graph.get_emails_graph")
