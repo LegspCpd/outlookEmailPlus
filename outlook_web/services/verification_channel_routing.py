@@ -547,24 +547,29 @@ def extract_verification_for_outlook(
             break
 
     if emails:
-        latest = sorted(emails, key=_message_sort_key, reverse=True)[0]
-        channel = str(latest.get("_verification_channel") or "")
-        folder = str(latest.get("folder") or "inbox").strip().lower() or "inbox"
-        latest_id = str(latest.get("id") or "")
-        last_log_channel = channel or last_log_channel
-        verification_attempted = True
+        sorted_emails = sorted(emails, key=_message_sort_key, reverse=True)
 
-        detail = detail_cache.get((channel, folder, latest_id))
-        if detail is None:
-            detail = fetch_email_detail_for_channel(
-                account=account,
-                channel=channel,
-                message_id=latest_id,
-                proxy_url=proxy_url,
-                folder=folder,
-            )
+        for latest in sorted_emails:
+            channel = str(latest.get("_verification_channel") or "")
+            folder = str(latest.get("folder") or "inbox").strip().lower() or "inbox"
+            latest_id = str(latest.get("id") or "")
+            last_log_channel = channel or last_log_channel
 
-        if detail:
+            detail = detail_cache.get((channel, folder, latest_id))
+            if detail is None:
+                detail = fetch_email_detail_for_channel(
+                    account=account,
+                    channel=channel,
+                    message_id=latest_id,
+                    proxy_url=proxy_url,
+                    folder=folder,
+                )
+
+            if not detail:
+                continue
+
+            verification_attempted = True
+
             email_obj = _build_email_obj_from_channel_detail(detail=detail, latest=latest)
 
             from outlook_web.services.verification_extractor import (

@@ -35,6 +35,32 @@ class VerificationExtractorOptionsTests(unittest.TestCase):
         self.assertEqual(result.get("verification_code"), "654321")
         self.assertIsNone(result.get("verification_link"))
 
+    def test_extract_with_code_length_supports_lowercase_alphanumeric_code(self):
+        func = self._require_new_api()
+        email = {
+            "subject": "Your verification code",
+            "body": "Your verification code is ab12cd",
+            "body_html": "",
+        }
+
+        result = func(email, code_length="6-6")
+
+        self.assertEqual(result.get("verification_code"), "ab12cd")
+        self.assertEqual(result.get("code_confidence"), "high")
+
+    def test_extract_with_code_length_preserves_mixed_case_alphanumeric_code(self):
+        func = self._require_new_api()
+        email = {
+            "subject": "Your verification code",
+            "body": "Your verification code is Ab12Cd",
+            "body_html": "",
+        }
+
+        result = func(email, code_length="6-6")
+
+        self.assertEqual(result.get("verification_code"), "Ab12Cd")
+        self.assertEqual(result.get("code_confidence"), "high")
+
     def test_extract_with_code_regex_supports_alphanumeric_code(self):
         func = self._require_new_api()
         email = {
@@ -582,6 +608,24 @@ class VerificationExtractorConfidenceTests(unittest.TestCase):
         self.assertEqual(result.get("code_confidence"), "high")
         gated = extractor.apply_confidence_gate(result, enforce_mutual_exclusion=False)
         self.assertEqual(gated.get("verification_code"), "NJF-KUU")
+
+    def test_extract_html_ignores_css_color_and_keeps_context_hyphen_code(self):
+        """ZER-90: HTML 样式色值 #333333 不应覆盖正文里的 84A-KMN。"""
+        func = self._require_new_api()
+        email = {
+            "subject": "Verification",
+            "body": "",
+            "body_html": (
+                "<html><head><style>.title { color: #333333; }</style></head><body>"
+                "<p>Your verification code is 84A-KMN</p>"
+                "</body></html>"
+            ),
+        }
+
+        result = func(email, code_source="all")
+
+        self.assertEqual(result.get("verification_code"), "84A-KMN")
+        self.assertEqual(result.get("code_confidence"), "high")
 
 
 if __name__ == "__main__":
