@@ -407,7 +407,9 @@ class VerificationChannelRoutingLogChannelTests(unittest.TestCase):
             self.assertTrue(result.get("success"))
             self.assertEqual(result.get("data", {}).get("matched_email_id"), "5")
             self.assertEqual(result.get("data", {}).get("verification_code"), "701280")
-            self.assertEqual([call.kwargs.get("folder") for call in mock_fetch_and_detail.call_args_list], ["inbox", "junkemail"])
+            self.assertEqual(
+                [call.kwargs.get("folder") for call in mock_fetch_and_detail.call_args_list], ["inbox", "junkemail"]
+            )
             mock_fetch_detail.assert_not_called()
 
     def test_graph_junk_newer_than_inbox_wins_global_latest(self):
@@ -696,7 +698,9 @@ class VerificationChannelRoutingLogChannelTests(unittest.TestCase):
 
             with (
                 patch.object(vcr, "build_verification_channel_plan", return_value=["imap_new"]),
-                patch.object(vcr, "fetch_emails_and_detail_for_channel", side_effect=[inbox_result, junk_result]) as mock_fetch_and_detail,
+                patch.object(
+                    vcr, "fetch_emails_and_detail_for_channel", side_effect=[inbox_result, junk_result]
+                ) as mock_fetch_and_detail,
                 patch.object(vcr, "fetch_email_detail_for_channel") as mock_fetch_detail,
                 patch(
                     "outlook_web.services.graph.get_access_token_graph_result",
@@ -715,5 +719,7 @@ class VerificationChannelRoutingLogChannelTests(unittest.TestCase):
             self.assertEqual(result.get("channel_used"), "imap_new")
             self.assertEqual(result.get("data", {}).get("folder"), "junkemail")
             self.assertEqual(result.get("data", {}).get("verification_code"), "333333")
-            self.assertEqual([call.kwargs.get("folder") for call in mock_fetch_and_detail.call_args_list], ["inbox", "junkemail"])
+            self.assertEqual(
+                [call.kwargs.get("folder") for call in mock_fetch_and_detail.call_args_list], ["inbox", "junkemail"]
+            )
             mock_fetch_detail.assert_not_called()

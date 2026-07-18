@@ -372,8 +372,7 @@ def fetch_emails_and_detail_for_channel(
         }
 
     emails = [
-        _enrich_verification_message(item, folder=folder_name, channel=normalized)
-        for item in (result.get("emails") or [])
+        _enrich_verification_message(item, folder=folder_name, channel=normalized) for item in (result.get("emails") or [])
     ]
     return {
         "success": True,
@@ -396,6 +395,25 @@ def _is_extraction_success(extracted: Dict[str, Any], expected_field: Any) -> bo
     if expected_field:
         return bool(extracted.get(expected_field))
     return bool(extracted.get("verification_code") or extracted.get("verification_link"))
+
+
+def _should_try_older_email_after_failed_extraction(
+    extracted: Dict[str, Any],
+    expected_field: Any,
+) -> bool:
+    """当指定 expected_field 时，仅允许在较新邮件为「仅链接/仅验证码」时继续尝试更早邮件。"""
+    if not expected_field:
+        return True
+
+    field = str(expected_field).strip()
+    has_code = bool(extracted.get("verification_code"))
+    has_link = bool(extracted.get("verification_link"))
+
+    if field == "verification_code":
+        return has_link and not has_code
+    if field == "verification_link":
+        return has_code and not has_link
+    return False
 
 
 def _build_email_obj_from_channel_detail(*, detail: Dict[str, Any], latest: Dict[str, Any]) -> Dict[str, Any]:
@@ -628,6 +646,12 @@ def extract_verification_for_outlook(
                     "_log_used_ai": bool(extracted.get("_used_ai")),
                     "new_refresh_token": new_refresh_token,
                 }
+
+            if expected_field and not _should_try_older_email_after_failed_extraction(
+                extracted,
+                expected_field,
+            ):
+                break
 
     if not any_channel_read_success:
         return {

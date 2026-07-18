@@ -170,12 +170,18 @@ class VerificationChannelMemoryV1Tests(unittest.TestCase):
                     "id": "link-msg",
                     "subject": "Verify with link",
                     "date": "2026-04-19T10:01:00Z",
+                    "receivedDateTime": "2026-04-19T10:01:00Z",
+                    "folder": "inbox",
+                    "_verification_channel": "graph_inbox",
                     "body_preview": "Click the verification link",
                 },
                 {
                     "id": "code-msg",
                     "subject": "Your code",
                     "date": "2026-04-19T10:00:00Z",
+                    "receivedDateTime": "2026-04-19T10:00:00Z",
+                    "folder": "inbox",
+                    "_verification_channel": "graph_inbox",
                     "body_preview": "Your code is 123456",
                 },
             ]
@@ -199,7 +205,7 @@ class VerificationChannelMemoryV1Tests(unittest.TestCase):
                 patch.object(vcr.channel_capability_cache, "filter_channel_plan", return_value=["graph_inbox"]),
                 patch.object(
                     vcr,
-                    "fetch_emails_and_detail_for_channel",
+                    "fetch_emails_for_channel",
                     return_value={"success": True, "emails": emails},
                 ),
                 patch.object(vcr, "fetch_email_detail_for_channel", side_effect=detail_for_message) as mock_detail,
