@@ -113,9 +113,17 @@ jobs:
 
           echo ""
           echo "=== Running: npx wrangler deploy ==="
+          set +e
           DEPLOY_OUTPUT=$(npx wrangler deploy 2>&1)
+          EXIT_CODE=$?
+          set -e
           echo "$DEPLOY_OUTPUT"
-          echo "=== Exit code: $? ==="
+          echo "=== Exit code: $EXIT_CODE ==="
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "❌ wrangler deploy failed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
+          fi
 
           # 从输出中提取 Worker URL
           WORKER_URL=$(echo "$DEPLOY_OUTPUT" | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -1)
