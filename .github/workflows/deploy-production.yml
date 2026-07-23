@@ -49,6 +49,7 @@ jobs:
           if [ -z "${{ secrets.D1_DATABASE_ID }}" ]; then MISSING="$MISSING D1_DATABASE_ID"; fi
           if [ -z "${{ secrets.D1_DATABASE_NAME }}" ]; then MISSING="$MISSING D1_DATABASE_NAME"; fi
           if [ -z "${{ secrets.KV_NAMESPACE_ID }}" ]; then MISSING="$MISSING KV_NAMESPACE_ID"; fi
+          if [ -z "${{ secrets.KV_BINDING_NAME }}" ]; then MISSING="$MISSING KV_BINDING_NAME"; fi
           if [ -z "${{ secrets.R2_BUCKET_NAME }}" ]; then MISSING="$MISSING R2_BUCKET_NAME"; fi
 
           if [ -n "$MISSING" ]; then
@@ -86,6 +87,7 @@ jobs:
           sed -i "s|__D1_ID__|${{ secrets.D1_DATABASE_ID }}|g" wrangler.toml
           sed -i "s|__D1_NAME__|${{ secrets.D1_DATABASE_NAME }}|g" wrangler.toml
           sed -i "s|__KV_ID__|${{ secrets.KV_NAMESPACE_ID }}|g" wrangler.toml
+          sed -i "s|__KV_BINDING__|${{ secrets.KV_BINDING_NAME }}|g" wrangler.toml
           sed -i "s|__R2_BUCKET__|${{ secrets.R2_BUCKET_NAME }}|g" wrangler.toml
           echo "✅ wrangler.toml IDs injected"
 

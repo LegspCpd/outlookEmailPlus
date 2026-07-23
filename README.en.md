@@ -466,6 +466,7 @@ Configure these in your GitHub repository under **Settings → Secrets and varia
 | `D1_DATABASE_ID` | D1 database ID | From `wrangler d1 list` output |
 | `D1_DATABASE_NAME` | D1 database name | Name you gave when creating D1 (e.g. `outlook-email-db`) |
 | `KV_NAMESPACE_ID` | KV namespace ID | From `wrangler kv:namespace list` output |
+| `KV_BINDING_NAME` | KV binding name | Default `SESSION_KV` (must match wrangler.toml) |
 | `R2_BUCKET_NAME` | R2 bucket name | The R2 bucket you created |
 
 ### Deployment Workflows
