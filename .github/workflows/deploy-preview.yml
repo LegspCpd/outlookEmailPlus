@@ -139,28 +139,41 @@ jobs:
 
       - name: Smoke test with retry
         shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: |
           WORKER_URL="${{ steps.deploy.outputs.deployment_url }}"
           echo "Deployment URL from wrangler: '$WORKER_URL'"
           if [ -z "$WORKER_URL" ]; then
-            echo "⚠️ No URL from wrangler, checking workers.dev..."
+            echo "⚠️ No URL from wrangler, constructing workers.dev URL..."
             WORKER_URL="https://outlook-email-plus.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
           fi
           echo "Smoke testing: $WORKER_URL/healthz"
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            --max-time 30 \
-            --retry 5 \
-            --retry-delay 10 \
-            --retry-connrefused \
-            "$WORKER_URL/healthz" || echo "000")
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "❌ Smoke test failed: got HTTP $HTTP_STATUS"
-            echo "Checking worker routes..."
-            curl -s --max-time 30 "$WORKER_URL/healthz" || true
-            curl -s --max-time 30 "$WORKER_URL/" || true
+
+          MAX_ATTEMPTS=12
+          SLEEP_SECONDS=15
+          attempt=1
+          while [ $attempt -le $MAX_ATTEMPTS ]; do
+            echo "Attempt $attempt/$MAX_ATTEMPTS: curl $WORKER_URL/healthz"
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$WORKER_URL/healthz" || echo "000")
+            echo "HTTP status: $HTTP_STATUS"
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ Smoke test passed: HTTP $HTTP_STATUS"
+              exit 0
+            fi
+            echo "Worker not ready yet; sleeping $SLEEP_SECONDS seconds..."
+            sleep $SLEEP_SECONDS
+            attempt=$((attempt+1))
+          done
+
+          echo "❌ Smoke test failed after $MAX_ATTEMPTS attempts: last HTTP $HTTP_STATUS"
+          echo "===== Verbose debug ====="
+          curl -v --max-time 30 "$WORKER_URL/healthz" || true
+          curl -v --max-time 30 "$WORKER_URL/" || true
+
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
             echo ""
-            echo "=== Checking workers.dev subdomain ==="
+            echo "=== Checking workers list (wrangler) ==="
             npx wrangler list 2>&1 | grep -i "outlook-email-plus" || true
-            exit 1
           fi
-          echo "✅ Smoke test passed: HTTP $HTTP_STATUS"
+          exit 1
