@@ -8,7 +8,6 @@ import { verifyPassword } from '../db/schema.js';
 
 const LOGIN_MAX_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_SECONDS = 300; // 5 分钟
-const LOGIN_WINDOW_SECONDS = 900; // 15 分钟
 
 /**
  * 注册认证路由

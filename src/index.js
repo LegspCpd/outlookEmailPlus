@@ -12,6 +12,7 @@
 
 import { Router } from './router.js';
 import { errorResponse, jsonResponse } from './middleware/response.js';
+import { initializeSchema } from './db/schema.js';
 
 // 路由实例
 const router = new Router();
@@ -98,6 +99,9 @@ router.all('*', async (request, env, ctx) => {
 
 // ==================== Worker 入口 ====================
 
+// 标记 schema 是否已初始化（避免每次冷启动重复执行）
+let schemaInitialized = false;
+
 export default {
 	/**
 	 * @param {Request} request
@@ -106,6 +110,17 @@ export default {
 	 */
 	async fetch(request, env, ctx) {
 		try {
+			// 首次请求时初始化 D1 schema
+			if (!schemaInitialized) {
+				schemaInitialized = true;
+				try {
+					await initializeSchema(env.DB);
+					console.log('D1 schema initialized on first request');
+				} catch (schemaErr) {
+					console.error('D1 schema init error (non-fatal):', schemaErr);
+				}
+			}
+
 			// CORS 预检处理
 			if (request.method === 'OPTIONS') {
 				return handleCORS(request);

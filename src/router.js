@@ -87,7 +87,7 @@ export class Router {
 		});
 
 		// 3. 转义剩余的所有正则特殊字符
-		regexStr = regexStr.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+		regexStr = regexStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 		// 把刚才插入的捕获组 `\(` 恢复为 `(`
 		regexStr = regexStr.replace(/\\\(/g, '(').replace(/\\\)/g, ')');
 
