@@ -72,27 +72,26 @@ export class Router {
 	 */
 	_addRoute(method, path) {
 		const handler = arguments[2];
-		// 将 :param 格式转换为正则
 		const paramNames = [];
-		const regexStr = path.replace(/:([^/]+)/g, (_, name) => {
-			paramNames.push(name);
-			// <path:xxx> 匹配包含斜杠的路径
-			if (path.includes(`<path:${name}>`)) {
-				return '([^/]+)';
-			}
-			return '([^/]+)';
-		}).replace(/<path:([^>]+)>/g, (_, name) => {
+
+		// 1. 先处理 <path:xxx> 通配符参数（匹配含斜杠路径）
+		let regexStr = path.replace(/<path:([^>]+)>/g, (_, name) => {
 			paramNames.push(name);
 			return '(.+)';
 		});
 
-		// 转义特殊字符但不转义已处理的捕获组
-		const escaped = regexStr.replace(/[.*+?^${}()|[\]\\]/g, (c) => {
-			if (c === '(' || c === ')') return c;
-			return '\\' + c;
-		}).replace(/\\([(])/g, '(').replace(/\\([)])/g, ')');
+		// 2. 再处理 :param 命名参数（不匹配斜杠）
+		regexStr = regexStr.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
+			paramNames.push(name);
+			return '([^/]+)';
+		});
 
-		const pattern = new RegExp(`^${escaped}$`);
+		// 3. 转义剩余的所有正则特殊字符
+		regexStr = regexStr.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+		// 把刚才插入的捕获组 `\(` 恢复为 `(`
+		regexStr = regexStr.replace(/\\\(/g, '(').replace(/\\\)/g, ')');
+
+		const pattern = new RegExp(`^${regexStr}$`);
 		this.routes.push({ method, pattern, paramNames, handler });
 	}
 

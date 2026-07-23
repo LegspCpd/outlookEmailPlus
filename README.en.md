@@ -464,7 +464,9 @@ Configure these in your GitHub repository under **Settings → Secrets and varia
 | `R2_ACCESS_KEY_ID` | R2 Access Key ID | R2 → Overview → Manage R2 API Tokens → Create |
 | `R2_SECRET_ACCESS_KEY` | R2 Access Key Secret | Same as above (shown only once on creation) |
 | `D1_DATABASE_ID` | D1 database ID | From `wrangler d1 list` output |
+| `D1_DATABASE_NAME` | D1 database name | Name you gave when creating D1 (e.g. `outlook-email-db`) |
 | `KV_NAMESPACE_ID` | KV namespace ID | From `wrangler kv:namespace list` output |
+| `R2_BUCKET_NAME` | R2 bucket name | The R2 bucket you created |
 
 ### Deployment Workflows
 

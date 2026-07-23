@@ -28,9 +28,6 @@ const MIME_TYPES = {
 	'.map': 'application/json',
 };
 
-// 需要注入 APP_VERSION 的动态路由
-const DYNAMIC_PAGE_ROUTES = ['/', '/login'];
-
 /**
  * 从 R2 获取文件
  * @param {R2Bucket} bucket

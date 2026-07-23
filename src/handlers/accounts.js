@@ -2,7 +2,7 @@
  * 账号 API 路由
  */
 
-import { jsonResponse, errorResponse, generateTraceId } from '../middleware/response.js';
+import { jsonResponse, errorResponse } from '../middleware/response.js';
 import { loginRequired } from '../middleware/auth.js';
 
 /**

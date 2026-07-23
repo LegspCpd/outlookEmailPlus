@@ -6,13 +6,15 @@
  * 返回 JSON 响应
  * @param {any} data
  * @param {number} status
+ * @param {Object} [extraHeaders] - 额外的响应头
  * @returns {Response}
  */
-export function jsonResponse(data, status = 200) {
+export function jsonResponse(data, status = 200, extraHeaders = {}) {
 	return new Response(JSON.stringify(data), {
 		status,
 		headers: {
 			'content-type': 'application/json;charset=UTF-8',
+			...extraHeaders,
 		},
 	});
 }
