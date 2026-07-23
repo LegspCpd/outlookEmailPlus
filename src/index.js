@@ -168,44 +168,4 @@ function getCorsHeaders(request) {
 	return headers;
 }
 
-/**
- * CORS 处理
- */
-function handleCORS(request) {
-	const headers = getCorsHeaders(request);
-	headers['access-control-max-age'] = '86400';
-	return new Response(null, {
-		status: 204,
-		headers,
-	});
-}
 
-/**
- * 获取 CORS 头
- */
-function getCorsHeaders(request) {
-	const origin = request.headers.get('Origin') || '';
-	const allowedOrigins = [
-		/^chrome-extension:\/\/.*$/,
-	];
-
-	// 检查是否匹配允许的来源
-	const isAllowed = allowedOrigins.some((pattern) => pattern.test(origin));
-
-	const headers = {
-		'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-		'access-control-allow-headers': 'Content-Type, X-API-Key, X-CSRF-Token',
-		'access-control-allow-credentials': 'true',
-	};
-
-	if (isAllowed) {
-		headers['access-control-allow-origin'] = origin;
-	} else if (origin) {
-		// 对已知来源放宽
-		headers['access-control-allow-origin'] = origin;
-	} else {
-		headers['access-control-allow-origin'] = '*';
-	}
-
-	return headers;
-}
