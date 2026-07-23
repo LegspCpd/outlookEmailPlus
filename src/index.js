@@ -66,48 +66,12 @@ registerPluginRoutes(router);
 registerSchedulerRoutes(router);
 registerTokenToolRoutes(router);
 
-// ==================== 404 兜底 ====================
-router.all('*', async (request, env, ctx) => {
-	const url = new URL(request.url);
-
-	// 如果是 API 路径，返回 JSON 404
-	if (url.pathname.startsWith('/api/')) {
-		return jsonResponse(
-			{ success: false, error: { code: 'NOT_FOUND', message: 'API endpoint not found', status: 404 } },
-			404
-		);
-	}
-
-	// 其他路径尝试返回 index.html（SPA 降级）
-	try {
-		const indexHtml = await env.R2_BUCKET.get('templates/index.html');
-		if (indexHtml) {
-			const html = await indexHtml.text();
-			return new Response(html, {
-				headers: {
-					'content-type': 'text/html;charset=UTF-8',
-					'x-robots-tag': 'noindex',
-				},
-			});
-		}
-	} catch (_) {
-		// ignore
-	}
-
-	return new Response('Not Found', { status: 404 });
-});
-
 // ==================== Worker 入口 ====================
 
 // 标记 schema 是否已初始化（避免每次冷启动重复执行）
 let schemaInitialized = false;
 
 export default {
-	/**
-	 * @param {Request} request
-	 * @param {Object} env - 环境变量和绑定
-	 * @param {ExecutionContext} ctx
-	 */
 	async fetch(request, env, ctx) {
 		try {
 			// 首次请求时初始化 D1 schema
@@ -129,19 +93,80 @@ export default {
 			// 交给路由处理
 			const response = await router.handle(request, env, ctx);
 
-			// 添加 CORS 头
-			const corsHeaders = getCorsHeaders(request);
-			for (const [key, value] of Object.entries(corsHeaders)) {
-				response.headers.set(key, value);
+			// 路由返回 null 表示无匹配 → 执行兜底逻辑
+			if (response === null) {
+				const url = new URL(request.url);
+
+				// API 路径 → JSON 404
+				if (url.pathname.startsWith('/api/')) {
+					return addCors(request, jsonResponse(
+						{ success: false, error: { code: 'NOT_FOUND', message: 'API endpoint not found', status: 404 } },
+						404
+					));
+				}
+
+				// 其他路径 → 尝试从 R2 返回 index.html（SPA 降级）
+				try {
+					const indexHtml = await env.R2_BUCKET.get('templates/index.html');
+					if (indexHtml) {
+						const html = await indexHtml.text();
+						return addCors(request, new Response(html, {
+							headers: { 'content-type': 'text/html;charset=UTF-8', 'x-robots-tag': 'noindex' },
+						}));
+					}
+				} catch (_) { /* ignore */ }
+
+				return addCors(request, new Response('Not Found', { status: 404 }));
 			}
 
-			return response;
+			// 添加 CORS 头
+			return addCors(request, response);
 		} catch (err) {
 			console.error('Unhandled error:', err);
 			return errorResponse('INTERNAL_ERROR', 'Internal server error', 500);
 		}
 	},
 };
+
+/**
+ * 给 Response 添加 CORS 头
+ */
+function addCors(request, response) {
+	const headers = getCorsHeaders(request);
+	for (const [key, value] of Object.entries(headers)) {
+		response.headers.set(key, value);
+	}
+	return response;
+}
+
+/**
+ * CORS 处理
+ */
+function handleCORS(request) {
+	const headers = getCorsHeaders(request);
+	headers['access-control-max-age'] = '86400';
+	return new Response(null, { status: 204, headers });
+}
+
+/**
+ * 获取 CORS 头
+ */
+function getCorsHeaders(request) {
+	const origin = request.headers.get('Origin') || '';
+	const allowedOrigins = [/^chrome-extension:\/\/.*$/];
+	const isAllowed = allowedOrigins.some((p) => p.test(origin));
+	const headers = {
+		'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+		'access-control-allow-headers': 'Content-Type, X-API-Key, X-CSRF-Token',
+		'access-control-allow-credentials': 'true',
+	};
+	if (isAllowed || origin) {
+		headers['access-control-allow-origin'] = origin;
+	} else {
+		headers['access-control-allow-origin'] = '*';
+	}
+	return headers;
+}
 
 /**
  * CORS 处理

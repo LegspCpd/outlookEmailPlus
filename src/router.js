@@ -70,8 +70,7 @@ export class Router {
 	 * @param {string} path
 	 * @param {Function} handler
 	 */
-	_addRoute(method, path) {
-		const handler = arguments[2];
+	_addRoute(method, path, handler) {
 		const paramNames = [];
 
 		// 1. 先处理 <path:xxx> 通配符参数（匹配含斜杠路径）
@@ -125,7 +124,7 @@ export class Router {
 			return await route.handler(request, env, ctx);
 		}
 
-		// 没有匹配的路由，交给 404 处理
-		return new Response('Not Found', { status: 404 });
+		// 没有匹配的路由，返回 null 让调用者处理
+		return null;
 	}
 }

@@ -16,7 +16,7 @@ export function registerOverviewRoutes(router) {
 			const data = {};
 
 			switch (type) {
-				case 'dashboard':
+				case 'dashboard': {
 					const accountCount = await env.DB.prepare('SELECT COUNT(*) as c FROM accounts').first();
 					const groupCount = await env.DB.prepare('SELECT COUNT(*) as c FROM groups').first();
 					const tempEmailCount = await env.DB.prepare('SELECT COUNT(*) as c FROM temp_emails').first();
@@ -24,12 +24,14 @@ export function registerOverviewRoutes(router) {
 					data.group_count = groupCount ? groupCount.c : 0;
 					data.temp_email_count = tempEmailCount ? tempEmailCount.c : 0;
 					break;
-				case 'pool':
+				}
+				case 'pool': {
 					const poolStats = await env.DB.prepare(
 						"SELECT status, COUNT(*) as c FROM accounts GROUP BY status"
 					).all();
 					data.pool_stats = poolStats.results || [];
 					break;
+				}
 				default:
 					return errorResponse('INVALID_TYPE', '无效的概览类型', 400);
 			}
