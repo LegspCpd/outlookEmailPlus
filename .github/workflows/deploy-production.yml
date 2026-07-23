@@ -109,8 +109,18 @@ jobs:
 
           echo ""
           echo "=== Running: npx wrangler deploy ==="
-          npx wrangler deploy 2>&1
+          DEPLOY_OUTPUT=$(npx wrangler deploy 2>&1)
+          echo "$DEPLOY_OUTPUT"
           echo "=== Exit code: $? ==="
+
+          # 从输出中提取 Worker URL
+          WORKER_URL=$(echo "$DEPLOY_OUTPUT" | grep -oP 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -1)
+          if [ -n "$WORKER_URL" ]; then
+            echo "deployment_url=$WORKER_URL" >> $GITHUB_OUTPUT
+            echo "✅ Captured Worker URL: $WORKER_URL"
+          else
+            echo "⚠️ Could not extract Worker URL from output"
+          fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -118,8 +128,10 @@ jobs:
       - name: Smoke test with retry
         shell: bash
         run: |
-          WORKER_URL="${{ steps.deploy.outputs.deployment-url }}"
+          WORKER_URL="${{ steps.deploy.outputs.deployment_url }}"
+          echo "Deployment URL from wrangler: '$WORKER_URL'"
           if [ -z "$WORKER_URL" ]; then
+            echo "⚠️ No URL from wrangler, checking workers.dev..."
             WORKER_URL="https://outlook-email-plus.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
           fi
           echo "Smoke testing: $WORKER_URL/healthz"
@@ -134,6 +146,10 @@ jobs:
             echo "Checking worker routes..."
             curl -s --max-time 30 "$WORKER_URL/healthz" || true
             curl -s --max-time 30 "$WORKER_URL/" || true
+            # 再试试 dev URL 是否有不同子域名
+            echo ""
+            echo "=== Checking if workers.dev subdomain differs ==="
+            npx wrangler list 2>&1 | grep -i "outlook-email-plus" || true
             exit 1
           fi
           echo "✅ Smoke test passed: HTTP $HTTP_STATUS"
