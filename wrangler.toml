@@ -43,12 +43,12 @@ binding = "DB"
 database_name = "outlook-email-db"
 database_id = "your-d1-database-id-here"
 
-[env.preview.d1_databases]
+[[env.preview.d1_databases]]
 binding = "DB"
 database_name = "outlook-email-db-preview"
 database_id = "your-preview-d1-database-id-here"
 
-[env.production.d1_databases]
+[[env.production.d1_databases]]
 binding = "DB"
 database_name = "outlook-email-db"
 database_id = "your-production-d1-database-id-here"
@@ -63,11 +63,11 @@ database_id = "your-production-d1-database-id-here"
 binding = "SESSION_KV"
 id = "your-kv-namespace-id-here"
 
-[env.preview.kv_namespaces]
+[[env.preview.kv_namespaces]]
 binding = "SESSION_KV"
 id = "your-preview-kv-namespace-id-here"
 
-[env.production.kv_namespaces]
+[[env.production.kv_namespaces]]
 binding = "SESSION_KV"
 id = "your-production-kv-namespace-id-here"
 
@@ -82,11 +82,11 @@ id = "your-production-kv-namespace-id-here"
 binding = "R2_BUCKET"
 bucket_name = "outlook-email-static"
 
-[env.preview.r2_buckets]
+[[env.preview.r2_buckets]]
 binding = "R2_BUCKET"
 bucket_name = "outlook-email-static-preview"
 
-[env.production.r2_buckets]
+[[env.production.r2_buckets]]
 binding = "R2_BUCKET"
 bucket_name = "outlook-email-static"
 
