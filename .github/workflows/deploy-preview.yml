@@ -74,7 +74,6 @@ jobs:
     name: Deploy to Workers Preview
     needs: [check-secrets, test]
     runs-on: ubuntu-latest
-    environment: preview
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -99,6 +98,7 @@ jobs:
           echo "✅ wrangler.toml IDs injected"
 
       - name: Deploy to Cloudflare Workers (Preview)
+        id: deploy
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
@@ -111,16 +111,13 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
-  smoke-test:
-    name: Smoke Test
-    needs: deploy-preview
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    steps:
       - name: Smoke test with retry
         shell: bash
         run: |
-          WORKER_URL="https://outlook-email-plus.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
+          WORKER_URL="${{ steps.deploy.outputs.deployment-url }}"
+          if [ -z "$WORKER_URL" ]; then
+            WORKER_URL="https://outlook-email-plus.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
+          fi
           echo "Smoke testing: $WORKER_URL/healthz"
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             --max-time 30 \
@@ -130,7 +127,9 @@ jobs:
             "$WORKER_URL/healthz" || echo "000")
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "❌ Smoke test failed: got HTTP $HTTP_STATUS"
+            echo "Checking worker routes..."
             curl -s --max-time 30 "$WORKER_URL/healthz" || true
+            curl -s --max-time 30 "$WORKER_URL/" || true
             exit 1
           fi
           echo "✅ Smoke test passed: HTTP $HTTP_STATUS"

@@ -68,6 +68,8 @@ jobs:
     name: Deploy to Workers Production
     needs: [check-secrets, confirm]
     runs-on: ubuntu-latest
+    outputs:
+      deployment_url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -92,6 +94,7 @@ jobs:
           echo "✅ wrangler.toml IDs injected"
 
       - name: Deploy to Cloudflare Workers (Production)
+        id: deploy
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
@@ -104,16 +107,14 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
-  smoke-test:
-    name: Smoke Test (Production)
-    needs: deploy-production
-    runs-on: ubuntu-latest
-    steps:
       - name: Smoke test with retry
         shell: bash
         run: |
-          WORKER_URL="https://outlook-email-plus.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
-          echo "Smoke testing production: $WORKER_URL/healthz"
+          WORKER_URL="${{ steps.deploy.outputs.deployment-url }}"
+          if [ -z "$WORKER_URL" ]; then
+            WORKER_URL="https://outlook-email-plus.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
+          fi
+          echo "Smoke testing: $WORKER_URL/healthz"
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             --max-time 30 \
             --retry 5 \
@@ -121,11 +122,13 @@ jobs:
             --retry-connrefused \
             "$WORKER_URL/healthz" || echo "000")
           if [ "$HTTP_STATUS" != "200" ]; then
-            echo "❌ Production smoke test failed: got HTTP $HTTP_STATUS"
+            echo "❌ Smoke test failed: got HTTP $HTTP_STATUS"
+            echo "Checking worker routes..."
             curl -s --max-time 30 "$WORKER_URL/healthz" || true
+            curl -s --max-time 30 "$WORKER_URL/" || true
             exit 1
           fi
-          echo "✅ Production smoke test passed: HTTP $HTTP_STATUS"
+          echo "✅ Smoke test passed: HTTP $HTTP_STATUS"
           echo ""
           echo "🎉 生产环境部署成功！"
           echo "    Worker URL: $WORKER_URL"
