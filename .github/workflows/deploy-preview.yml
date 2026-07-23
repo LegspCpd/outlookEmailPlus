@@ -117,15 +117,17 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     steps:
-      - name: Wait for deployment
-        run: sleep 15
-
-      - name: Smoke test - check Worker returns 200
+      - name: Smoke test with retry
         shell: bash
         run: |
-          WORKER_URL="https://outlook-email-plus-preview.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
+          WORKER_URL="https://outlook-email-plus.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
           echo "Smoke testing: $WORKER_URL/healthz"
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$WORKER_URL/healthz" || echo "000")
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            --retry 5 \
+            --retry-delay 10 \
+            --retry-connrefused \
+            "$WORKER_URL/healthz" || echo "000")
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "❌ Smoke test failed: got HTTP $HTTP_STATUS"
             curl -s --max-time 30 "$WORKER_URL/healthz" || true

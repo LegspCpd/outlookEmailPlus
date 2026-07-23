@@ -109,15 +109,17 @@ jobs:
     needs: deploy-production
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for deployment
-        run: sleep 20
-
-      - name: Smoke test - check production Worker returns 200
+      - name: Smoke test with retry
         shell: bash
         run: |
           WORKER_URL="https://outlook-email-plus.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
           echo "Smoke testing production: $WORKER_URL/healthz"
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$WORKER_URL/healthz" || echo "000")
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            --retry 5 \
+            --retry-delay 10 \
+            --retry-connrefused \
+            "$WORKER_URL/healthz" || echo "000")
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "❌ Production smoke test failed: got HTTP $HTTP_STATUS"
             curl -s --max-time 30 "$WORKER_URL/healthz" || true
