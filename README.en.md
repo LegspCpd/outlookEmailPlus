@@ -388,6 +388,120 @@ ALLOW_LOGIN_PASSWORD_CHANGE=false
 - the site remains usable
 - visitors cannot change the backend login password from Settings
 
+## ☁️ Cloudflare Workers Deployment
+
+The project has been adapted for **Cloudflare Workers**, using **D1** (relational database) + **Workers KV** (session/cache) + **R2** (object storage) as its storage layer.
+
+> ⚠️ **Target platform: Cloudflare Workers, NOT Cloudflare Pages!**
+> All adaptations are backend-only — **frontend files (HTML/CSS/JS) remain untouched**.
+
+### Architecture
+
+```text
+src/
+├── index.js              # Worker entry point (ES Module)
+├── router.js             # Lightweight URL router
+├── db/
+│   └── schema.js         # D1 database schema (compatible with SQLite v24)
+├── middleware/
+│   ├── auth.js           # Authentication middleware (Session via KV + API Key)
+│   └── response.js       # HTTP response utilities
+└── handlers/             # API route handlers
+    ├── accounts.js       # Account management
+    ├── emails.js         # Email reading
+    ├── groups.js         # Group management
+    ├── tags.js           # Tag management
+    ├── settings.js       # System settings
+    ├── auth.js           # Login/logout
+    ├── health.js         # Health checks
+    ├── system.js         # System info
+    ├── static.js         # Static assets (R2)
+    └── ...               # More routes
+```
+
+### Storage Migration
+
+| Original | Cloudflare Replacement | Purpose |
+|---------|----------------------|---------|
+| SQLite | **D1** | Relational database for accounts, groups, settings, audit logs |
+| Flask Session | **Workers KV** | Session management, caching, distributed locks |
+| Local filesystem | **R2** | Static assets (HTML/CSS/JS/images) |
+
+### Prerequisites: Create Cloudflare Resources
+
+Before deploying, create the following Cloudflare resources:
+
+```bash
+# 1. Install Wrangler CLI
+npm install -g wrangler
+
+# 2. Log in to Cloudflare
+wrangler login
+
+# 3. Create D1 database
+wrangler d1 create outlook-email-db
+
+# 4. Create KV namespace
+wrangler kv:namespace create "SESSION_KV"
+
+# 5. Create R2 bucket
+wrangler r2 bucket create outlook-email-static
+
+# 6. Upload static files to R2
+wrangler r2 object put outlook-email-static/templates/index.html --file=templates/index.html
+wrangler r2 object put outlook-email-static/templates/login.html --file=templates/login.html
+# ... upload all templates, static files, and images
+```
+
+### Required GitHub Secrets
+
+Configure these in your GitHub repository under **Settings → Secrets and variables → Actions**:
+
+| Secret Name | Description | How to Obtain |
+|------------|-------------|---------------|
+| `CF_API_TOKEN` | Cloudflare API token | Cloudflare Dashboard → My Profile → API Tokens → Create (with Workers, D1, KV, R2 edit permissions) |
+| `CF_ACCOUNT_ID` | Cloudflare Account ID | Cloudflare Dashboard right sidebar, "Account ID" |
+| `R2_ACCESS_KEY_ID` | R2 Access Key ID | R2 → Overview → Manage R2 API Tokens → Create |
+| `R2_SECRET_ACCESS_KEY` | R2 Access Key Secret | Same as above (shown only once on creation) |
+| `D1_DATABASE_ID` | D1 database ID | From `wrangler d1 list` output |
+| `KV_NAMESPACE_ID` | KV namespace ID | From `wrangler kv:namespace list` output |
+
+### Deployment Workflows
+
+The project uses **two separate workflows** to strictly separate preview and production deployments.
+
+#### Auto Deploy (Preview)
+
+- **Triggers**: Push to `main`/`master` or PR creation
+- **Workflow**: `.github/workflows/deploy-preview.yml`
+- **Target**: `wrangler deploy --env preview`
+- **Steps**: Secret check → Run tests → Deploy → Smoke test
+
+#### 🔴 Manual Deploy (Production)
+
+> **⚠️ Production is NEVER deployed automatically by CI!**
+
+To deploy to production:
+
+1. Verify everything works in the preview environment
+2. Go to GitHub → **Actions** tab
+3. Select **"Deploy to Production (Cloudflare Workers)"**
+4. Click **"Run workflow"**
+5. Type `yes` in the confirmation input
+6. Click **"Run workflow"** to start
+
+### Secret Validation
+
+Both workflows include a strict pre-deployment secret check. If any required secret is missing, the **exact variable name** is printed and the build is aborted:
+
+```
+❌ Error: The following required secrets are not set:
+   Error: R2_ACCESS_KEY_ID is not set.
+   Error: D1_DATABASE_ID is not set.
+```
+
+No vague error codes are ever used.
+
 ## Project Documentation
 
 - [中文注册与邮箱池接口文档](./注册与邮箱池接口文档.md)

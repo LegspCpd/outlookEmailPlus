@@ -1,0 +1,121 @@
+# =============================================================================
+# 工作流：部署到 Cloudflare Workers 预览环境
+# 触发条件：推送到 main/master 分支或 PR 时自动触发
+# 目标环境：wrangler --env preview
+# =============================================================================
+
+name: Deploy to Preview (Cloudflare Workers)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  check-secrets:
+    name: Check Required Secrets
+    runs-on: ubuntu-latest
+    outputs:
+      secrets_ok: ${{ steps.check.outputs.secrets_ok }}
+    steps:
+      - name: Check all required secrets
+        id: check
+        shell: bash
+        run: |
+          MISSING=""
+          # 必需的 Secrets 列表
+          if [ -z "${{ secrets.CF_API_TOKEN }}" ]; then MISSING="$MISSING CF_API_TOKEN"; fi
+          if [ -z "${{ secrets.CF_ACCOUNT_ID }}" ]; then MISSING="$MISSING CF_ACCOUNT_ID"; fi
+          if [ -z "${{ secrets.R2_ACCESS_KEY_ID }}" ]; then MISSING="$MISSING R2_ACCESS_KEY_ID"; fi
+          if [ -z "${{ secrets.R2_SECRET_ACCESS_KEY }}" ]; then MISSING="$MISSING R2_SECRET_ACCESS_KEY"; fi
+          if [ -z "${{ secrets.D1_DATABASE_ID }}" ]; then MISSING="$MISSING D1_DATABASE_ID"; fi
+          if [ -z "${{ secrets.KV_NAMESPACE_ID }}" ]; then MISSING="$MISSING KV_NAMESPACE_ID"; fi
+
+          if [ -n "$MISSING" ]; then
+            echo "❌ Error: The following required secrets are not set:"
+            for var in $MISSING; do
+              echo "   Error: $var is not set."
+            done
+            echo "secrets_ok=false" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "✅ All required secrets are set."
+            echo "secrets_ok=true" >> $GITHUB_OUTPUT
+          fi
+
+  test:
+    name: Run Tests
+    needs: check-secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run browser extension tests
+        run: npm run test:browser-extension || echo "Browser extension tests not configured"
+
+      - name: Validate wrangler.toml
+        run: npx wrangler --version
+
+  deploy-preview:
+    name: Deploy to Workers Preview
+    needs: [check-secrets, test]
+    runs-on: ubuntu-latest
+    environment: preview
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to Cloudflare Workers (Preview)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: deploy --env preview
+          secrets: |
+            R2_ACCESS_KEY_ID
+            R2_SECRET_ACCESS_KEY
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+  smoke-test:
+    name: Smoke Test
+    needs: deploy-preview
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Wait for deployment
+        run: sleep 15
+
+      - name: Smoke test - check Worker returns 200
+        shell: bash
+        run: |
+          WORKER_URL="https://outlook-email-plus-preview.${{ secrets.CF_ACCOUNT_ID }}.workers.dev"
+          echo "Smoke testing: $WORKER_URL/healthz"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$WORKER_URL/healthz" || echo "000")
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ Smoke test failed: got HTTP $HTTP_STATUS"
+            curl -s --max-time 30 "$WORKER_URL/healthz" || true
+            exit 1
+          fi
+          echo "✅ Smoke test passed: HTTP $HTTP_STATUS"

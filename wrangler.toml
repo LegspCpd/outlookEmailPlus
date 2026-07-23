@@ -1,0 +1,107 @@
+# =============================================================================
+# Cloudflare Wrangler 配置 — Outlook Email Plus
+# =============================================================================
+# 目标平台: Cloudflare Workers (非 Pages)
+# 存储方案: D1 (数据库) + Workers KV (会话/缓存) + R2 (静态资源/文件)
+#
+# 部署前准备:
+#   1. 创建 D1 数据库:  wrangler d1 create outlook-email-db
+#   2. 创建 KV 命名空间: wrangler kv:namespace create "SESSION_KV"
+#   3. 创建 R2 存储桶:   wrangler r2 bucket create outlook-email-static
+#   4. 上传静态文件:     wrangler r2 object put outlook-email-static/templates/index.html --file=templates/index.html
+#   5. 配置 Secrets:     wrangler secret put R2_ACCESS_KEY_ID
+#                       wrangler secret put R2_SECRET_ACCESS_KEY
+# =============================================================================
+
+name = "outlook-email-plus"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+
+# ES Module 格式
+workers_dev = true
+
+# =============================================================================
+# 环境配置
+# =============================================================================
+
+[env.preview]
+# 预览环境 — 自动部署 (push/PR)
+name = "outlook-email-plus-preview"
+
+[env.production]
+# 生产环境 — 手动触发 (workflow_dispatch)
+name = "outlook-email-plus"
+
+# =============================================================================
+# D1 数据库绑定 (替代 SQLite)
+# =============================================================================
+# 创建: wrangler d1 create outlook-email-db
+# 将输出的 database_id 填入下方
+
+[[d1_databases]]
+binding = "DB"
+database_name = "outlook-email-db"
+database_id = "your-d1-database-id-here"
+
+[env.preview.d1_databases]
+binding = "DB"
+database_name = "outlook-email-db-preview"
+database_id = "your-preview-d1-database-id-here"
+
+[env.production.d1_databases]
+binding = "DB"
+database_name = "outlook-email-db"
+database_id = "your-production-d1-database-id-here"
+
+# =============================================================================
+# Workers KV 绑定 (替代 Session/Cache 存储)
+# =============================================================================
+# 创建: wrangler kv:namespace create "SESSION_KV"
+# 将输出的 id 填入下方
+
+[[kv_namespaces]]
+binding = "SESSION_KV"
+id = "your-kv-namespace-id-here"
+
+[env.preview.kv_namespaces]
+binding = "SESSION_KV"
+id = "your-preview-kv-namespace-id-here"
+
+[env.production.kv_namespaces]
+binding = "SESSION_KV"
+id = "your-production-kv-namespace-id-here"
+
+# =============================================================================
+# R2 存储桶绑定 (替代本地文件存储)
+# =============================================================================
+# 创建: wrangler r2 bucket create outlook-email-static
+# 注意: R2 的访问密钥 (Access Key ID / Secret Access Key)
+#       将通过 GitHub Secrets 注入，不在此硬编码。
+
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "outlook-email-static"
+
+[env.preview.r2_buckets]
+binding = "R2_BUCKET"
+bucket_name = "outlook-email-static-preview"
+
+[env.production.r2_buckets]
+binding = "R2_BUCKET"
+bucket_name = "outlook-email-static"
+
+# =============================================================================
+# 环境变量
+# =============================================================================
+
+[vars]
+APP_VERSION = "2.7.0"
+OAUTH_TOOL_ENABLED = "true"
+
+[env.preview.vars]
+APP_VERSION = "2.7.0-preview"
+OAUTH_TOOL_ENABLED = "true"
+
+[env.production.vars]
+APP_VERSION = "2.7.0"
+OAUTH_TOOL_ENABLED = "true"

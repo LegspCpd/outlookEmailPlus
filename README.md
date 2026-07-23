@@ -398,6 +398,175 @@ ALLOW_LOGIN_PASSWORD_CHANGE=false
 - 访客无法在“系统设置”里改掉后台登录密码
 
 
+## ☁️ Cloudflare Workers 部署
+
+项目已适配 **Cloudflare Workers** 平台，使用 **D1**（关系型数据库）+ **Workers KV**（会话/缓存）+ **R2**（对象存储）作为存储方案。
+
+> ⚠️ **目标平台：Cloudflare Workers，不是 Cloudflare Pages！**
+> 所有适配工作仅涉及后端和配置层面，**前端页面文件（HTML/CSS/JS）未做任何修改**。
+
+### 架构概览
+
+```text
+src/
+├── index.js              # Worker 入口 (ES Module, export default { fetch })
+├── router.js             # 轻量级 URL 路由器
+├── db/
+│   └── schema.js         # D1 数据库 Schema 定义 (兼容原 SQLite v24)
+├── middleware/
+│   ├── auth.js           # 认证中间件 (Session via KV + API Key)
+│   └── response.js       # 响应工具函数
+└── handlers/             # API 路由处理器
+    ├── accounts.js       # 账号管理
+    ├── emails.js         # 邮件读取
+    ├── groups.js         # 分组管理
+    ├── tags.js           # 标签管理
+    ├── settings.js       # 系统设置
+    ├── auth.js           # 登录/登出
+    ├── health.js         # 健康检查
+    ├── system.js         # 系统信息
+    ├── static.js         # 静态资源 (R2)
+    └── ...               # 更多路由
+```
+
+### 存储方案
+
+| 原有方案 | Cloudflare 替代 | 用途 |
+|---------|----------------|------|
+| SQLite | **D1** | 关系型数据库，存储账号/分组/设置/审计日志等 |
+| Flask Session | **Workers KV** | 会话管理、缓存、分布式锁 |
+| 本地文件系统 | **R2** | 静态资源（HTML/CSS/JS/图片） |
+
+### 前置准备：创建 Cloudflare 资源
+
+在部署前，需手动创建以下资源：
+
+```bash
+# 1. 安装 Wrangler CLI
+npm install -g wrangler
+
+# 2. 登录 Cloudflare
+wrangler login
+
+# 3. 创建 D1 数据库
+wrangler d1 create outlook-email-db
+
+# 4. 创建 KV 命名空间
+wrangler kv:namespace create "SESSION_KV"
+
+# 5. 创建 R2 存储桶
+wrangler r2 bucket create outlook-email-static
+
+# 6. 上传静态文件到 R2
+#    注意：将 templates/、static/、img/ 等目录上传到 R2 存储桶
+wrangler r2 object put outlook-email-static/templates/index.html --file=templates/index.html
+wrangler r2 object put outlook-email-static/templates/login.html --file=templates/login.html
+wrangler r2 object put outlook-email-static/templates/token_tool.html --file=templates/token_tool.html
+wrangler r2 object put outlook-email-static/templates/popup_result.html --file=templates/popup_result.html
+# 递归上传 static 目录
+wrangler r2 object put outlook-email-static/static/css/main.css --file=static/css/main.css
+# ... 上传所有静态文件
+
+# 或者使用批量工具上传整个目录
+```
+
+### 配置 wrangler.toml
+
+编辑 `wrangler.toml`，填入第 3 步获得的资源 ID：
+
+| 配置项 | 说明 |
+|-------|------|
+| `d1_databases[0].database_id` | D1 数据库 ID |
+| `kv_namespaces[0].id` | KV 命名空间 ID |
+| `r2_buckets[0].bucket_name` | R2 存储桶名称 |
+
+R2 的访问密钥（Access Key ID / Secret Access Key）将通过环境变量注入，不在 wrangler.toml 中硬编码。
+
+### 必需的 GitHub Secrets
+
+在 GitHub 仓库的 **Settings → Secrets and variables → Actions** 中配置以下 Secrets：
+
+| Secret 名称 | 说明 | 获取方式 |
+|------------|------|---------|
+| `CF_API_TOKEN` | Cloudflare API 令牌 | Cloudflare Dashboard → My Profile → API Tokens → 创建（权限：Workers、D1、KV、R2 的编辑权限） |
+| `CF_ACCOUNT_ID` | Cloudflare 账户 ID | Cloudflare Dashboard 右侧页面底部 "Account ID" |
+| `R2_ACCESS_KEY_ID` | R2 访问密钥 ID | R2 → Overview → Manage R2 API Tokens → 创建 |
+| `R2_SECRET_ACCESS_KEY` | R2 访问密钥 Secret | 同上（创建时仅显示一次） |
+| `D1_DATABASE_ID` | D1 数据库 ID | `wrangler d1 list` 输出中的 `uuid` |
+| `KV_NAMESPACE_ID` | KV 命名空间 ID | `wrangler kv:namespace list` 输出中的 `id` |
+
+### 部署流程
+
+本项目采用**双工作流**策略，严格分离预览环境和生产环境：
+
+#### 自动部署（预览环境）
+
+- **触发条件**：推送 `main`/`master` 分支或创建 PR 时自动触发
+- **工作流文件**：`.github/workflows/deploy-preview.yml`
+- **部署目标**：`wrangler deploy --env preview`
+- **包含步骤**：变量检查 → 运行测试 → 部署到 Workers 预览 → 冒烟测试
+
+当代码推送后，CI 会自动：
+1. ✅ 检查所有必需的 Secrets 是否存在（缺少任何一个会直接打印变量名并终止）
+2. ✅ 运行测试套件
+3. ✅ 部署到预览环境
+4. ✅ 对预览环境的 `/healthz` 端点发起 HTTP 请求，验证返回状态码为 200
+
+#### 🔴 手动部署（生产环境）
+
+> **⚠️ 重要：生产部署不会自动触发！CI 绝不自动上线生产！**
+
+生产部署需要你**手动确认执行**：
+
+1. 在预览环境验证所有功能正常
+2. 前往 GitHub 仓库的 **Actions** 页面
+3. 选择 **"Deploy to Production (Cloudflare Workers)"** 工作流
+4. 点击 **"Run workflow"** 下拉按钮
+5. 在输入框中输入 `yes` 确认
+6. 点击 **"Run workflow"** 开始部署
+
+生产部署工作流包含：确认检查 → 变量检查 → 运行测试 → 部署到 Workers 生产 → 冒烟测试。
+
+### 本地开发
+
+```bash
+# 安装依赖
+npm install
+
+# 使用 Wrangler 本地开发（模拟 Worker 环境）
+npx wrangler dev
+
+# 或使用远程资源
+npx wrangler dev --remote
+```
+
+### R2 令牌说明
+
+R2 访问令牌通过 GitHub Secrets (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`) 传入，在 `wrangler-action` 部署步骤中以环境变量形式注入 Worker。
+
+工作流中引用方式：
+```yaml
+- uses: cloudflare/wrangler-action@v3
+  with:
+    secrets: |
+      R2_ACCESS_KEY_ID
+      R2_SECRET_ACCESS_KEY
+  env:
+    R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+    R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+```
+
+### 变量检查机制
+
+两个工作流均包含严格的变量检查步骤。如果缺少任何一个必需的 Secrets，会在 CI 日志中**直接打印缺少的变量名**并终止构建，例如：
+
+```
+❌ Error: The following required secrets are not set:
+   Error: R2_ACCESS_KEY_ID is not set.
+   Error: D1_DATABASE_ID is not set.
+```
+
+绝不会出现模糊的通用错误码（如 `Error 01`）。
 
 ## 项目文档
 
